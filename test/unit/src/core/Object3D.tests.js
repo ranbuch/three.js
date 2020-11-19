@@ -1,7 +1,3 @@
-/**
- * @author simonThiele / https://github.com/simonThiele
- * @author TristanVALCKE / https://github.com/Itee
- */
 /* global QUnit */
 
 import { Object3D } from '../../../../src/core/Object3D';
@@ -87,7 +83,7 @@ export default QUnit.module( 'Core', () => {
 
 		} );
 
-		QUnit.test( "applyMatrix", ( assert ) => {
+		QUnit.test( "applyMatrix4", ( assert ) => {
 
 			var a = new Object3D();
 			var m = new Matrix4();
@@ -97,7 +93,7 @@ export default QUnit.module( 'Core', () => {
 			m.makeRotationX( Math.PI / 2 );
 			m.setPosition( new Vector3( x, y, z ) );
 
-			a.applyMatrix( m );
+			a.applyMatrix4( m );
 
 			assert.deepEqual( a.position, expectedPos, "Position has the expected values" );
 			assert.ok(
@@ -300,7 +296,7 @@ export default QUnit.module( 'Core', () => {
 
 		} );
 
-		QUnit.test( "add/remove", ( assert ) => {
+		QUnit.test( "add/remove/clear", ( assert ) => {
 
 			var a = new Object3D();
 			var child1 = new Object3D();
@@ -331,6 +327,13 @@ export default QUnit.module( 'Core', () => {
 			assert.strictEqual( a.children.length, 1, "The second one was added to the parent (no remove)" );
 			assert.strictEqual( a.children[ 0 ], child2, "The second one is now the parent's child again" );
 			assert.strictEqual( child1.children.length, 0, "The first one no longer has any children" );
+
+			a.add( child1 );
+			assert.strictEqual( a.children.length, 2, "The first child was added to the parent" );
+			a.clear();
+			assert.strictEqual( a.children.length, 0, "All childrens were removed" );
+			assert.strictEqual( child1.parent, null, "First child has no parent" );
+			assert.strictEqual( child2.parent, null, "Second child has no parent" );
 
 		} );
 
@@ -392,7 +395,7 @@ export default QUnit.module( 'Core', () => {
 			var m = new Matrix4().makeScale( x, y, z );
 			var expected = new Vector3( x, y, z );
 
-			a.applyMatrix( m );
+			a.applyMatrix4( m );
 
 			assert.deepEqual( a.getWorldScale( new Vector3() ), expected, "WorldScale as expected" );
 
@@ -497,15 +500,187 @@ export default QUnit.module( 'Core', () => {
 
 		} );
 
-		QUnit.todo( "updateMatrix", ( assert ) => {
+		QUnit.test( "updateMatrix", ( assert ) => {
 
-			assert.ok( false, "everything's gonna be alright" );
+			const a = new Object3D();
+			a.position.set( 2, 3, 4 );
+			a.quaternion.set( 5, 6, 7, 8 );
+			a.scale.set( 9, 10, 11 );
+
+			assert.deepEqual( a.matrix.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "Updating position, quaternion, or scale has no effect to matrix until calling updateMatrix()" );
+
+			a.updateMatrix();
+
+			assert.deepEqual( a.matrix.elements, [
+				-1521, 1548, -234, 0,
+				-520, -1470, 1640, 0,
+				1826, 44, -1331, 0,
+				2, 3, 4, 1
+			], "matrix is calculated from position, quaternion, and scale" );
+
+			assert.equal( a.matrixWorldNeedsUpdate, true, "The flag indicating world matrix needs to be updated should be true" );
 
 		} );
 
-		QUnit.todo( "updateMatrixWorld", ( assert ) => {
+		QUnit.test( "updateMatrixWorld", ( assert ) => {
 
-			assert.ok( false, "everything's gonna be alright" );
+			const parent = new Object3D();
+			const child = new Object3D();
+
+			// -- Standard usage test
+
+			parent.position.set( 1, 2, 3 );
+			child.position.set( 4, 5, 6 );
+			parent.add( child );
+
+			parent.updateMatrixWorld();
+
+			assert.deepEqual( parent.matrix.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				1, 2, 3, 1
+			], "updateMatrixWorld() updates local matrix" );
+
+			assert.deepEqual( parent.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				1, 2, 3, 1
+			], "updateMatrixWorld() updates world matrix" );
+
+			assert.deepEqual( child.matrix.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				4, 5, 6, 1
+			], "updateMatrixWorld() updates children's local matrix" );
+
+			assert.deepEqual( child.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				5, 7, 9, 1
+			], "updateMatrixWorld() updates children's world matrices from their parent world matrix and their local matrices" );
+
+			assert.equal( parent.matrixWorldNeedsUpdate || child.matrixWorldNeedsUpdate, false, "The flag indicating world matrix needs to be updated should be false after updating world matrix" );
+
+			// -- No sync between local position/quaternion/scale/matrix and world matrix test
+
+			parent.position.set( 0, 0, 0 );
+			parent.updateMatrix();
+
+			assert.deepEqual( parent.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				1, 2, 3, 1
+			], "Updating position, quaternion, scale, or local matrix has no effect to world matrix until calling updateWorldMatrix()" );
+
+			// -- matrixAutoUpdate = false test
+
+			// Resetting local and world matrices to the origin
+			child.position.set( 0, 0, 0 );
+			parent.updateMatrixWorld();
+
+			parent.position.set( 1, 2, 3 );
+			parent.matrixAutoUpdate = false;
+			child.matrixAutoUpdate = false;
+			parent.updateMatrixWorld();
+
+			assert.deepEqual( parent.matrix.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "updateMatrixWorld() doesn't update local matrix if matrixAutoUpdate is false" );
+
+			assert.deepEqual( parent.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "World matrix isn't updated because local matrix isn't updated and the flag indicating world matrix needs to be updated didn't rise" );
+
+			assert.deepEqual( child.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "No effect to child world matrix if parent local and world matrices and child local matrix are not updated" );
+
+			// -- Propagation to children world matrices test
+
+			parent.matrixAutoUpdate = true;
+			parent.updateMatrixWorld();
+
+			assert.deepEqual( child.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				1, 2, 3, 1
+			], "Updating parent world matrix has effect to children world matrices even if children local matrices aren't changed" );
+
+			// -- force argument test
+
+			// Resetting the local and world matrices to the origin
+			child.position.set( 0, 0, 0 );
+			child.matrixAutoUpdate = true;
+			parent.updateMatrixWorld();
+
+			parent.position.set( 1, 2, 3 );
+			parent.updateMatrix();
+			parent.matrixAutoUpdate = false;
+			parent.matrixWorldNeedsUpdate = false;
+
+			parent.updateMatrixWorld( true );
+
+			assert.deepEqual( parent.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				1, 2, 3, 1
+			], "force = true forces to update world matrix even if local matrix is not changed" );
+
+			// -- Restriction test: No effect to parent matrices
+
+			// Resetting the local and world matrices to the origin
+			parent.position.set( 0, 0, 0 );
+			child.position.set( 0, 0, 0 );
+			parent.matrixAutoUpdate = true;
+			child.matrixAutoUpdate = true;
+			parent.updateMatrixWorld();
+
+			parent.position.set( 1, 2, 3 );
+			child.position.set( 4, 5, 6 );
+
+			child.updateMatrixWorld();
+
+			assert.deepEqual( parent.matrix.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "updateMatrixWorld() doesn't update parent local matrix" );
+
+			assert.deepEqual( parent.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			], "updateMatrixWorld() doesn't update parent world matrix" );
+
+			assert.deepEqual( child.matrixWorld.elements, [
+				1, 0, 0, 0,
+				0, 1, 0, 0,
+				0, 0, 1, 0,
+				4, 5, 6, 1
+			], "updateMatrixWorld() calculates world matrix from the current parent world matrix" );
 
 		} );
 
